@@ -807,6 +807,13 @@ class Service:
             sessions=[s for s in archive.sessions() if s['username'] in wanted]
         if not sessions: raise ValueError('请先选择至少一个会话')
         options=options_from(payload); options.update(format=fmt,demo=library.get('demo',False),_theme=self.export_theme())
+        saved_images = payload.get('savedImageDirectory')
+        if saved_images and 'image' not in options['skip_resource_types']:
+            if len(sessions) != 1:
+                raise ValueError('导入微信保存的图片时，请只选择一个会话。')
+            if not isinstance(saved_images, str) or not Path(saved_images).is_dir():
+                raise ValueError('请选择有效的微信图片保存目录。')
+            options['saved_image_directory'] = Path(saved_images).resolve()
         packaging, password = export_options(self.config.get('archive_options'), payload)
         source_bytes = storage.source_database_bytes(library)
         count = len(sessions)

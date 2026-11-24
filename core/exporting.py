@@ -166,7 +166,8 @@ def export_session(archive, session, options, folder, viewer_assets, progress, c
     out.mkdir(exist_ok=True)
     preferences=export_preferences(options)
     with (closing(ResourceStore(archive.data, session['username'], out, cancel, status, preferences,
-                                remote_media=preferences['allow_remote_media'], batch_media=batch_media))
+                                remote_media=preferences['allow_remote_media'], batch_media=batch_media,
+                                saved_image_directory=options.get('saved_image_directory')))
           if hasattr(archive, 'data') else nullcontext()) as resources:
         def records():
             nonlocal first_time,last_time

@@ -17,15 +17,17 @@ import urllib.request
 import urllib.error
 from itertools import chain
 from contextlib import ExitStack, closing
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 from .avatars import AvatarStore,image_type
-from .media_codec import ImageKeys,MediaCodec,media_type,encrypted_media_variants,is_flac_message
+from .media_codec import ImageKeys,MediaCodec,media_type,encrypted_media_variants,is_flac_message,valid_image
 from wx4.reader import reference_text,_xml
 from wx4.game_emojis import describe_game,from_hash
 from .game_emojis import game_image
 from wx4.forward import build_forward
 from .export_options import RESOURCE_TYPES,export_preferences,is_system_message
+from .paths import is_link
 
 HASH=re.compile(r'(?i)(?<![a-f0-9])[a-f0-9]{32}(?![a-f0-9])')
 FILE_INDEX = """
@@ -35,6 +37,18 @@ FILE_INDEX = """
 """
 FORWARD_EXTENSIONS = {'.dat','.pic','.jpg','.jpeg','.png','.gif','.webp','.wxgf','.mp4','.mov','.silk','.mp3','.wav'}
 INDEX_EXCLUSIONS = {'.db','.db-wal','.db-shm','.log','.ini'}
+WECHAT_SAVED_IMAGE = re.compile(r'(?:图片|圖片)_([0-9]{14})_([0-9]+)_[0-9]+\.(?:jpg|jpeg|png|gif|webp|bmp)', re.IGNORECASE)
+
+
+def saved_wechat_images(directory, cancel):
+    images = {}
+    for path in Path(directory).iterdir():
+        cancel()
+        name = WECHAT_SAVED_IMAGE.fullmatch(path.name)
+        if name and not is_link(path) and path.is_file():
+            identity = (name[1], name[2])
+            images[identity] = None if identity in images else path
+    return images
 
 def media_url(url):
     try:
@@ -124,13 +138,14 @@ class BatchMediaIndex:
 
 
 class ResourceStore:
-    def __init__(self,data,session,destination,cancel=lambda:None,status=None,options=None,preview=False, *, remote_media=True, batch_media=None):
+    def __init__(self,data,session,destination,cancel=lambda:None,status=None,options=None,preview=False, *, remote_media=True, batch_media=None, saved_image_directory=None):
         self.data=data;self.session=session;self.out=Path(destination);self.cancel=cancel
         self.preview=preview;self.retry=False;self.sticker_decoder=None
         self.preview_flac = False
         self.preferences=export_preferences(options or {})
         self.remote_media = remote_media
         self.skipped=set(self.preferences['skip_resource_types'])
+        self.saved_images = saved_wechat_images(saved_image_directory, cancel) if saved_image_directory and 'image' not in self.skipped else {}
         self.avatars=AvatarStore.for_archive(data)
         self.batch_media = batch_media
         self.file_tables = ['main.files']
@@ -320,6 +335,26 @@ class ResourceStore:
         self.stats[status]+=1
         name=Path(source).stem+ext if extension else Path(source).name
         return {'kind':category,'path':dest.relative_to(self.out).as_posix(),'name':name,'status':status,'role':role}
+
+    def _saved_image(self, message):
+        try:
+            timestamp = datetime.fromtimestamp(message['create_time']).strftime('%Y%m%d%H%M%S')
+            path = self.saved_images.get((timestamp, str(message['local_id'])))
+            if path is None or is_link(path):
+                return None
+            with path.open('rb') as stream:
+                size = os.fstat(stream.fileno()).st_size
+                if not 0 < size <= 128 * 1024**2:
+                    return None
+                blob = stream.read(size)
+        except (OSError, OverflowError, ValueError):
+            return None
+        format_info = image_type(blob)
+        if not format_info or not valid_image(blob):
+            return None
+        resource = self._copy(path, 'image', blob, '.' + format_info[0])
+        resource['source'] = 'wechat_saved'
+        return resource
 
     def _download(self,url,limit):
         identity=hashlib.sha256(url.encode()).hexdigest()
@@ -528,6 +563,10 @@ class ResourceStore:
         skip=category in self.skipped
         skip_all=self.skipped==set(RESOURCE_TYPES)
         if skip:self._skip(msg,{'image':'图片/动画表情','video':'视频','audio':'语音','file':'文件内容'}[category])
+        if kind == 'image' and depth == 0 and self.saved_images:
+            image = self._saved_image(msg)
+            if image:
+                resources.append(image)
         if kind=='emoji':
             game=msg['extra'].get('game_emoji') or describe_game(_xml(msg.get('content') or msg.get('_resource_source','')))
             if not game:

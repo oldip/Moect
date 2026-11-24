@@ -5,6 +5,7 @@ import sqlite3
 import tempfile
 import unittest
 from contextlib import ExitStack,closing
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -155,6 +156,56 @@ class ExportPreferenceTests(unittest.TestCase):
             self.assertEqual(next(row for row in rows if row['server_id']=='11')['resource_status'],'skipped')
             self.assertTrue(all(not row['avatar'] for row in rows))
         finally:service.shutdown()
+
+    def test_wechat_saved_images_reach_the_html_export_job(self):
+        saved = self.root/'wechat-saved'
+        saved.mkdir()
+        timestamp = datetime.fromtimestamp(1800000015).strftime('%Y%m%d%H%M%S')
+        (saved/f'圖片_{timestamp}_15_112.png').write_bytes(PNG)
+        service = Service(ASSETS, self.root/'service-state')
+        service.library = self.lib
+        service.config['export_dir'] = str(self.root/'service-out')
+        try:
+            job = service.export({'sessions': [SESSION], 'format': 'html', 'savedImageDirectory': str(saved)})
+            service.pool.shutdown(wait=True)
+            path = service.task_file(job['job'])
+            chunk = (path.parent/'c000001.js').read_text(encoding='utf-8')
+            rows = json.loads(chunk.removeprefix('window.__wxChunk=').removesuffix(';'))
+            image = next(row for row in rows if row['server_id'] == '15')
+            self.assertEqual(image.get('resource_status', 'available'), 'available')
+            resource, = image['resources']
+            self.assertEqual((resource['kind'], resource['role'], resource['status']), ('image', 'main', 'available'))
+            self.assertEqual((path.parent/resource['path']).read_bytes(), PNG)
+            self.assertNotIn(str(saved), path.read_text(encoding='utf-8'))
+        finally:
+            service.shutdown()
+
+    def test_wechat_saved_images_ignore_ambiguous_wrong_time_and_invalid_files(self):
+        saved = self.root/'wechat-saved'
+        saved.mkdir()
+        timestamp = datetime.fromtimestamp(1800000015).strftime('%Y%m%d%H%M%S')
+        wrong_time = datetime.fromtimestamp(1800000014).strftime('%Y%m%d%H%M%S')
+        (saved/f'圖片_{timestamp}_99_112.png').write_bytes(PNG)
+        (saved/f'圖片_{wrong_time}_15_112.png').write_bytes(PNG)
+        exact = saved/f'圖片_{timestamp}_15_112.png'
+        exact.write_bytes(PNG[:24])
+        options = {'saved_image_directory': str(saved)}
+        rows = json_rows(self.export(options, 'invalid-saved'))
+        self.assertEqual(next(row for row in rows if row['server_id'] == '15')['resource_status'], 'missing')
+        exact.write_bytes(PNG)
+        (saved/f'圖片_{timestamp}_15_113.png').write_bytes(PNG)
+        rows = json_rows(self.export(options, 'ambiguous-saved'))
+        self.assertEqual(next(row for row in rows if row['server_id'] == '15')['resource_status'], 'missing')
+
+    def test_wechat_saved_images_do_not_override_skipped_media(self):
+        saved = self.root/'wechat-saved'
+        saved.mkdir()
+        timestamp = datetime.fromtimestamp(1800000015).strftime('%Y%m%d%H%M%S')
+        (saved/f'圖片_{timestamp}_15_112.png').write_bytes(PNG)
+        rows = json_rows(self.export({'saved_image_directory': str(saved), 'skipDownloadResourceTypes': ['image']}))
+        image = next(row for row in rows if row['server_id'] == '15')
+        self.assertEqual(image['resource_status'], 'skipped')
+        self.assertEqual(image['resources'], [])
 
     def test_preferences_are_validated_and_quick_export_has_priority(self):
         result=options_from({'quickExport':True,'includeAvatars':True,'skipDownloadResourceTypes':['video','video']})

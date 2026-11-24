@@ -53,11 +53,12 @@ class Api:
                 elif action=='window_close':window.destroy()
                 elif action!='window_state':raise ValueError('不支持的窗口操作')
                 return {'result':{'maximized':self._frame.isMaximized()}}
-            if action in ('choose_archive','choose_output','choose_storage','choose_cache','choose_diagnostics'):
+            if action in ('choose_archive','choose_output','choose_storage','choose_cache','choose_diagnostics','choose_saved_image_directory'):
                 folders=window.create_file_dialog(webview.FileDialog.FOLDER)
                 if not folders:return {'result':{'cancelled':True}}
                 if action=='choose_output':
                     result=svc.set_export_directory(folders[0])
+                elif action=='choose_saved_image_directory':result={'path':folders[0]}
                 elif action=='choose_archive':result=svc.import_archive(folders[0])
                 elif action=='choose_cache':result=svc.storage_job('storage_migrate', folders[0])
                 elif action=='choose_diagnostics':

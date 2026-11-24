@@ -57,6 +57,7 @@ export interface BatchExportConfig {
   quickExport: boolean
   includeAvatars: boolean
   allowRemoteMedia: boolean
+  savedImageDirectory?: string
   skipDownloadResourceTypes?: SkipDownloadResourceType[]
   outputDir: string
   keywords: string
@@ -99,6 +100,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
   const [quickExport, setQuickExport] = useState(false)
   const [includeAvatars, setIncludeAvatars] = useState(true)
   const [allowRemoteMedia, setAllowRemoteMedia] = useState(false)
+  const [savedImageDirectory, setSavedImageDirectory] = useState('')
   const [skipDownloadResourceTypes, setSkipDownloadResourceTypes] = useState<SkipDownloadResourceType[] | undefined>(undefined)
   const [outputDir, setOutputDir] = useState('')
   const [keywords, setKeywords] = useState('')
@@ -128,6 +130,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
       setQuickExport(false)
       setIncludeAvatars(true)
       setAllowRemoteMedia(false)
+      setSavedImageDirectory('')
       setSkipDownloadResourceTypes(undefined)
       setOutputDir('')
       setKeywords('')
@@ -198,6 +201,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
       customStartDate: timeRange === 'custom' ? customStartDate : undefined,
       customEndDate: timeRange === 'custom' ? customEndDate : undefined,
       includeSystemMessages, quickExport, includeAvatars, allowRemoteMedia: allowRemoteMedia && !quickExport,
+      savedImageDirectory: items.length === 1 && !quickExport && !skipDownloadResourceTypes?.includes('image') ? savedImageDirectory : undefined,
       skipDownloadResourceTypes: skipDownloadResourceTypes || [],
       outputDir, keywords, archiveZip, archiveEncrypt, archivePassword:archivePassword||undefined,
     }
@@ -395,6 +399,24 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                   ] as const).map(option=><ExportSwitch key={option.type} id={'skip-'+option.type} title={option.title} description={option.description} checked={quickExport || !!skipDownloadResourceTypes?.includes(option.type)} disabled={isExporting || quickExport} onChange={enabled=>setSkipDownloadResourceTypes(current=>toggleSkipResourceType(current,option.type,enabled))}/>)}
                   <ExportSwitch id="include-avatars" title="导出头像" description="将可用头像一起保存到归档中；关闭后使用姓名首字作为占位。" checked={includeAvatars && !quickExport} onChange={setIncludeAvatars} disabled={isExporting || quickExport}/>
                   <ExportSwitch id="allow-remote-media" title="联网补下载附件" description="默认读取本机已有资源。开启后，可尝试下载仍有有效链接的附件和头像。" checked={allowRemoteMedia && !quickExport} onChange={setAllowRemoteMedia} disabled={isExporting || quickExport}/>
+                  {items.length === 1 && !quickExport && !skipDownloadResourceTypes?.includes('image') && (
+                    <div className="space-y-2 px-5 py-4">
+                      <label htmlFor="saved-image-directory" className="block text-[13px] font-medium">从微信批量保存的图片补图</label>
+                      <p className="text-[12px] text-muted-foreground">在微信的聊天相册批量保存图片，再选择只含当前会话图片的文件夹。请保留微信生成的文件名。</p>
+                      <div className="flex gap-2">
+                        <Input id="saved-image-directory" placeholder="未选择图片文件夹" value={savedImageDirectory} readOnly className={PILL_INPUT + " flex-1"}/>
+                        <Button variant="outline" size="icon" disabled={isExporting} title="选择微信图片文件夹" onClick={async () => {
+                          try {
+                            const result = await call('choose_saved_image_directory')
+                            if (!result.cancelled) setSavedImageDirectory(result.path)
+                          } catch (error) {
+                            setDateError((error as Error).message)
+                          }
+                        }}><FolderOpen className="w-4 h-4"/></Button>
+                        {savedImageDirectory && <Button variant="outline" disabled={isExporting} onClick={() => setSavedImageDirectory('')}>清除</Button>}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </section>
 

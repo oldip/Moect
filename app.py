@@ -81,13 +81,15 @@ class Bridge(QObject):
                 elif action=='window_close':self.window.close()
                 elif action!='window_state':raise ValueError('不支持的窗口操作')
                 self.send(request_id,{'maximized':self.window.isMaximized()});return
-            if action in ('choose_archive','choose_output','choose_storage','choose_cache','choose_diagnostics'):
-                title={'choose_archive':'选择已解密备份','choose_output':'选择导出位置','choose_storage':'选择微信账号数据目录','choose_cache':'选择缓存位置','choose_diagnostics':'选择诊断文件保存位置'}[action]
+            if action in ('choose_archive','choose_output','choose_storage','choose_cache','choose_diagnostics','choose_saved_image_directory'):
+                title={'choose_archive':'选择已解密备份','choose_output':'选择导出位置','choose_storage':'选择微信账号数据目录','choose_cache':'选择缓存位置','choose_diagnostics':'选择诊断文件保存位置','choose_saved_image_directory':'选择微信图片文件夹'}[action]
                 folder=QFileDialog.getExistingDirectory(self.window,title)
                 if not folder:
                     self.send(request_id, {'cancelled':True}); return
                 if action=='choose_output':
                     self.send(request_id,self.service.set_export_directory(folder)); return
+                if action=='choose_saved_image_directory':
+                    self.send(request_id,{'path':folder}); return
                 selected={'choose_archive':'import_path','choose_storage':'storage_path','choose_cache':'cache_path','choose_diagnostics':'diagnostics_path'}
                 action, payload=selected[action],{'path':folder,'id':payload.get('id')}
             if action in ('open_export','open_task_folder','open_output'):
